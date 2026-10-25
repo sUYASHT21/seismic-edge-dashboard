@@ -3,7 +3,7 @@
 `dashboard.html` is one self-contained file. Open it in **desktop Chrome or Edge**, which have WebSerial.
 It needs no install and no server.
 
-* **Online:** open the GitHub Pages link for this repo in Chrome or Edge.
+* **Online:** <https://suyasht21.github.io/seismic-edge-dashboard/> in Chrome or Edge.
 * **Offline (safest at the venue):** download `dashboard.html` and double-click it. It needs no internet.
 
 Either way, the USB link runs straight from the ESP32 to the browser on that laptop. Nothing goes
