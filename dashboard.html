@@ -1,0 +1,960 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seismic Edge Node</title>
+<style>
+  :root {
+    --bg: #05080c; --panel: #0d131a; --panel-2: #141c26; --border: #243243;
+    --text: #f2f6fa; --muted: #a5b4c5; --dim: #75879b;
+    --raw: #4da3ff; --env: #ff9f1a; --thr: #3ddc5f;
+    --ok: #22c55e; --warn: #f59e0b; --bad: #ef4444;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+  body { display: flex; flex-direction: column; font: clamp(14px, 1.02vw, 20px)/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+  header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); }
+  h1 { margin: 0; font-size: 1.3em; white-space: nowrap; }
+  h1 span { color: var(--muted); font-weight: 500; font-size: .72em; margin-left: .5em; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+  .sep { width: 1px; height: 1.8em; background: var(--border); margin: 0 4px; }
+  button, select { font: inherit; font-size: .9em; color: var(--text); background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: .42em .8em; cursor: pointer; }
+  button:hover:not(:disabled), select:hover:not(:disabled) { border-color: #4f6680; }
+  button:disabled, select:disabled { opacity: .4; cursor: not-allowed; }
+  button.primary { background: #1d4ed8; border-color: #3b82f6; font-weight: 700; }
+  button.danger { background: #7f1d1d; border-color: var(--bad); font-weight: 700; }
+  button.replay { background: #5b3b00; border-color: var(--warn); font-weight: 700; }
+  button.small { font-size: .8em; padding: .3em .7em; }
+  .pill { font-weight: 800; font-size: .82em; letter-spacing: .04em; padding: .32em .8em; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .pill.live { color: #bbf7d0; border-color: var(--ok); background: #052e16; }
+  .pill.replay { color: #fde68a; border-color: var(--warn); background: #3a2700; }
+
+  #banner { padding: 10px 16px; background: #451a03; color: #fed7aa; border-bottom: 1px solid #9a3412; font-weight: 600; display: flex; gap: 12px; align-items: center; }
+  #banner[hidden] { display: none; }
+  #banner button { margin-left: auto; }
+
+  main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(330px, 31%); gap: 12px; padding: 12px 16px 14px; }
+  .col-left, .col-right { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .col-right { overflow: auto; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
+
+  .chart-panel { flex: 1 1 64%; min-height: 300px; display: flex; flex-direction: column; padding: 8px 10px 6px; }
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: .82em; color: var(--muted); padding: 2px 4px 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .legend #btnScale { margin-left: auto; }
+  .sw { display: inline-block; width: 22px; height: 12px; }
+  .sw.line { height: 3px; background: var(--c); }
+  .sw.thick { height: 5px; border-radius: 2px; }
+  .sw.dash { height: 0; border-top: 3px dashed var(--thr); }
+  .sw.box { background: var(--c); border-radius: 3px; }
+  .sw.mark { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 12px solid #fff; }
+  .chart-wrap { position: relative; flex: 1; min-height: 0; }
+  #chart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .log-panel { flex: 0 0 30%; min-height: 150px; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .9em; }
+  th { position: sticky; top: 0; background: var(--panel-2); color: var(--muted); text-align: left; font-weight: 700; font-size: .8em; text-transform: uppercase; letter-spacing: .05em; padding: .5em .7em; }
+  td { padding: .3em .7em; border-top: 1px solid #18222d; font-family: var(--mono); white-space: nowrap; }
+  td.ev { font-family: inherit; font-weight: 700; white-space: normal; }
+  td.empty { color: var(--dim); font-family: inherit; padding: 1em .7em; }
+  tr.lg-alert { background: rgba(239, 68, 68, .16); }
+  tr.lg-alert td.ev { color: #ff9b9b; }
+  tr.lg-pulse td.ev { color: #ffc46b; }
+  tr.lg-timeout td.ev { color: #a5b8ff; }
+  tr.lg-rejected td.ev { color: #9aa9ba; }
+  tr.lg-ignored td.ev { color: #d4dce6; }
+  tr.lg-info td { color: var(--dim); font-weight: 500; }
+
+  .tile { position: relative; border-radius: 14px; border: 3px solid transparent; padding: 46px 20px 18px; min-height: 13.5em; display: flex; flex-direction: column; justify-content: center; }
+  .tile .badges { position: absolute; top: 12px; left: 14px; right: 14px; display: flex; justify-content: space-between; gap: 8px; font-size: .72em; font-weight: 800; letter-spacing: .08em; }
+  .tile .badge { padding: .22em .6em; border-radius: 6px; background: rgba(0, 0, 0, .38); }
+  .tile .badge:empty { display: none; }
+  .tile .title { font-size: 2.9em; font-weight: 900; line-height: 1.02; }
+  .tile .sub { font-size: 1.05em; font-weight: 600; margin-top: .45em; }
+  .tile .bar { height: 14px; border-radius: 7px; background: rgba(0, 0, 0, .38); margin-top: 14px; overflow: hidden; }
+  .tile .bar > div { height: 100%; width: 0; background: currentColor; }
+  .tile.idle { background: #18212c; color: #cbd5e1; border-color: #334155; }
+  .tile.armed { background: #0a3a1d; color: #dcfce7; border-color: var(--ok); }
+  .tile.pulse { background: #4b3200; color: #fff1c2; border-color: var(--warn); }
+  .tile.alert { background: #8f1111; color: #fff; border-color: #ff7a7a; animation: flash .7s steps(1) infinite; }
+  @keyframes flash { 50% { background: #e01b1b; } }
+  @media (prefers-reduced-motion: reduce) { .tile.alert { animation: none; } }
+
+  .readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ro { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px 10px; min-width: 0; }
+  .ro.wide { grid-column: 1 / -1; }
+  .ro .k { color: var(--muted); font-size: .74em; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+  .ro .v { font: 800 1.75em/1.15 var(--mono); margin-top: 2px; }
+  .ro .v small { font-size: .5em; color: var(--muted); font-weight: 600; }
+  .ro .s { color: var(--muted); font-size: .8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ro .s.wrap { white-space: normal; font-size: .85em; color: var(--text); }
+  .v.env { color: var(--env); }
+  .v.good { color: #4ade80; }
+  .v.warn { color: #fca5a5; }
+  .meter { position: relative; height: 10px; border-radius: 5px; background: #1b2531; margin-top: 6px; overflow: hidden; }
+  .meter > div { height: 100%; width: 0; background: var(--env); }
+  .meter > div.over { background: #ff5a3c; }
+  .meter > i { position: absolute; top: 0; bottom: 0; left: 50%; width: 3px; background: var(--thr); }
+
+  @media (max-width: 1000px) {
+    html, body { height: auto; }
+    main { grid-template-columns: 1fr; }
+    .chart-panel { min-height: 460px; }
+    .log-panel { max-height: 360px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Seismic Edge Node<span>elephant footfall detector · live decision view</span></h1>
+  <div class="controls">
+    <button id="btnConnect" class="primary">Connect</button>
+    <select id="baud" title="Must match Serial.begin() in the sketch">
+      <option value="115200" selected>115200 baud</option>
+      <option value="921600">921600 baud</option>
+    </select>
+    <button id="btnReset" class="small" title="Pulse EN through RTS to reboot the ESP32">Reset board</button>
+    <span class="sep"></span>
+    <select id="scenario" title="Synthetic data, fed through the same parser and logic">
+      <option value="demo" selected>Demo: quiet → light → heavy → 2× heavy</option>
+      <option value="demo-fields">Demo with patched firmware fields</option>
+      <option value="poweron">Power-on false alert (unseeded baseline)</option>
+    </select>
+    <button id="btnReplay" class="replay">▶ Replay demo</button>
+    <span class="sep"></span>
+    <button id="btnClear" class="small">Clear</button>
+    <span id="pill" class="pill">Not connected</span>
+  </div>
+</header>
+<div id="banner" hidden><span id="bannerText"></span><button id="bannerClose" class="small">Dismiss</button></div>
+
+<main>
+  <div class="col-left">
+    <section class="panel chart-panel">
+      <div class="legend">
+        <span><i class="sw line" style="--c:var(--raw)"></i>Raw ADC</span>
+        <span><i class="sw line thick" style="--c:var(--env)"></i>Envelope</span>
+        <span><i class="sw dash"></i>Threshold</span>
+        <span><i class="sw mark"></i>Pulse counted</span>
+        <span><i class="sw box" style="--c:rgba(203,213,225,.38)"></i>350 ms refractory</span>
+        <span><i class="sw box" style="--c:rgba(245,158,11,.45)"></i>3 s gait window</span>
+        <span><i class="sw box" style="--c:rgba(239,68,68,.6)"></i>Alert hold</span>
+        <button id="btnScale" class="small" title="Toggle automatic or fixed y-axis">Y: Auto</button>
+      </div>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </section>
+    <section class="panel log-panel">
+      <table>
+        <thead><tr><th>Time</th><th>t (s)</th><th>Event</th><th>Peak env</th><th>Raw peak</th><th>Margin</th></tr></thead>
+        <tbody id="logBody"></tbody>
+      </table>
+    </section>
+  </div>
+
+  <aside class="col-right">
+    <section id="tile" class="tile idle">
+      <div class="badges"><span class="badge" id="tileSrc"></span><span class="badge" id="tileMode"></span></div>
+      <div class="title" id="tileTitle">IDLE</div>
+      <div class="sub" id="tileSub">Connect the ESP32 or press ▶ Replay demo</div>
+      <div class="bar"><div id="tileBar"></div></div>
+    </section>
+    <section class="readouts">
+      <div class="ro wide">
+        <div class="k">Envelope now <span style="float:right">threshold <b id="roThr">320</b></span></div>
+        <div class="v env" id="roEnv">—</div>
+        <div class="meter"><div id="roEnvBar"></div><i></i></div>
+      </div>
+      <div class="ro"><div class="k">Last event · peak envelope</div><div class="v" id="roPeakEnv">—</div><div class="s" id="roPeakKind">no event yet</div></div>
+      <div class="ro"><div class="k">Last event · raw peak</div><div class="v" id="roPeakRaw">—</div><div class="s">ADC counts, 0–4095</div></div>
+      <div class="ro"><div class="k">Margin vs threshold</div><div class="v" id="roMargin">—</div><div class="s" id="roMarginDb">peak ÷ threshold</div></div>
+      <div class="ro"><div class="k">Line rate</div><div class="v" id="roRate">—</div><div class="s">lines/s · expect 250</div></div>
+      <div class="ro"><div class="k">Serial link load</div><div class="v" id="roLink">—</div><div class="s" id="roLinkSub">bytes × 10 ÷ baud</div></div>
+      <div class="ro"><div class="k">Garbled lines</div><div class="v" id="roGarbled">0</div><div class="s" id="roGarbledSub">of 0 lines</div></div>
+      <div class="ro wide"><div class="k">Decision source</div><div class="s wrap" id="roSrc">—</div></div>
+    </section>
+  </aside>
+</main>
+
+<script>
+'use strict';
+
+// ==== CORE BEGIN — DOM-free: parser, firmware mirror, event detector, synthetic node. test_logic.mjs runs this block in Node.
+const CFG = Object.freeze({
+  SAMPLE_MS: 4,               // 250 Hz
+  WINDOW: 2500,               // 10 s strip chart
+  THRESH: 320,                // DETECTION_THRESHOLD, used when the line carries no Thresh field
+  REFRACTORY_MS: 350,
+  GAIT_WINDOW_MS: 3000,
+  ALERT_HOLD_MS: 3000,
+  EVENT_FLOOR: 40,            // envelope above this opens an activity event for the log...
+  EVENT_END_SAMPLES: 25,      // ...closed after 100 ms back below it
+  EVENT_MAX_SAMPLES: 500,     // ...or after 2 s of continuous activity
+  FIELDS_STALE_SAMPLES: 250,  // fall back to the mirror if Pulses/Alert stop arriving for 1 s
+  MAX_LINE: 256,
+  LOG_MAX: 200,
+});
+
+const KEY_MAP = { raw: 'raw', envelope: 'env', env: 'env', thresh: 'thr', threshold: 'thr', pulses: 'pulses', pulsecount: 'pulses', alert: 'alert' };
+const PAIR_RE = /([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)/g;
+
+// Returns {raw, env, thr, pulses, alert} (NaN where absent) or null for a garbled line.
+function parseLine(line) {
+  const out = { raw: NaN, env: NaN, thr: NaN, pulses: NaN, alert: NaN };
+  PAIR_RE.lastIndex = 0;
+  let m;
+  while ((m = PAIR_RE.exec(line)) !== null) {
+    const k = KEY_MAP[m[1].toLowerCase()];
+    if (!k) continue;                              // unknown keys are tolerated
+    if (!Number.isNaN(out[k])) return null;        // same key twice: two lines fused after dropped bytes
+    const v = Number(m[2]);
+    if (!Number.isFinite(v)) return null;
+    out[k] = v;
+  }
+  if (Number.isNaN(out.raw) && Number.isNaN(out.env)) return null;
+  if (out.raw < -10 || out.raw > 4200) return null;
+  if (out.env < 0 || out.env > 5000) return null;
+  return out;
+}
+
+// Reassembles lines across arbitrary chunk boundaries; accepts \n, \r\n or \r.
+class LineSplitter {
+  constructor(maxLen) { this.maxLen = maxLen; this.buf = ''; }
+  push(text, onLine) {
+    const parts = (this.buf + text).split(/\r\n|\r|\n/);
+    this.buf = parts.pop();
+    for (const p of parts) if (p) onLine(p);
+    if (this.buf.length > this.maxLen) { onLine(this.buf); this.buf = ''; }   // runaway line: hand it over as garbled
+  }
+}
+
+function mulberry32(a) {
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Same filters as the sketch, used only when a line arrives without an Envelope field.
+class EnvelopeDSP {
+  constructor() { this.dc = null; this.env = 0; }
+  step(raw) {
+    if (this.dc === null) this.dc = raw;
+    this.dc = 0.005 * raw + 0.995 * this.dc;
+    this.env = 0.08 * Math.abs(raw - this.dc) + 0.92 * this.env;
+    return this.env;
+  }
+}
+
+// Literal transcription of the sketch's per-sample block (float32 variables, millis() clock).
+// Drives Replay as a virtual ESP32 and is the reference the browser mirror is tested against.
+class FirmwareSim {
+  constructor({ seedBaseline = 2048.0, bootMs = 500 } = {}) {
+    this.dcBaseline = Math.fround(seedBaseline);
+    this.envelope = 0;
+    this.pulseCount = 0;
+    this.lastPulseTime = 0;
+    this.alertActive = false;
+    this.alertStartTime = 0;
+    this.bootMs = bootMs;
+    this.n = 0;
+  }
+  step(raw) {
+    const f = Math.fround, now = this.bootMs + this.n++ * 4;
+    this.dcBaseline = f(0.005 * raw + 0.995 * this.dcBaseline);
+    const zc = f(raw - this.dcBaseline);
+    this.envelope = f(0.08 * Math.abs(zc) + 0.92 * this.envelope);
+    if (this.envelope > 320 && now - this.lastPulseTime > 350) { this.pulseCount++; this.lastPulseTime = now; }
+    if (this.pulseCount >= 2) { this.alertActive = true; this.alertStartTime = now; this.pulseCount = 0; }
+    if (this.alertActive && now - this.alertStartTime >= 3000) this.alertActive = false;
+    if (now - this.lastPulseTime > 3000) this.pulseCount = 0;
+  }
+  line(raw, withFields) {
+    let s = `Raw:${raw}, Envelope:${this.envelope.toFixed(1)}, Thresh:320.0`;
+    if (withFields) s += `, Pulses:${this.pulseCount}, Alert:${this.alertActive ? 1 : 0}`;
+    return s;
+  }
+}
+
+// Gait discriminator re-run in the browser on the reported envelope, timed by sample count (4 ms each).
+class MirrorEngine {
+  constructor(emit) { this.emit = emit; this.reset(); }
+  reset() { this.pulses = 0; this.lastPulseT = -1e12; this.alertOn = false; this.alertStartT = -1e12; }
+  step(t, env, thr) {
+    if (env > thr && t - this.lastPulseT > CFG.REFRACTORY_MS) {
+      this.pulses++; this.lastPulseT = t;
+      this.emit({ type: 'pulse', t, n: this.pulses });
+    }
+    if (this.pulses >= 2) {
+      this.emit({ type: 'alert', t, retrigger: this.alertOn });
+      this.alertOn = true; this.alertStartT = t; this.pulses = 0;
+    }
+    if (this.alertOn && t - this.alertStartT >= CFG.ALERT_HOLD_MS) { this.alertOn = false; this.emit({ type: 'alertEnd', t }); }
+    if (this.pulses > 0 && t - this.lastPulseT > CFG.GAIT_WINDOW_MS) { this.pulses = 0; this.emit({ type: 'timeout', t }); }
+  }
+}
+
+// Turns the firmware's own Pulses/Alert fields into the same events (the sketch prints after its reset, so Pulses is 0 or 1).
+class FieldEngine {
+  constructor(emit) { this.emit = emit; this.reset(); }
+  reset() { this.pulses = 0; this.lastPulseT = -1e12; this.alertOn = false; this.alertStartT = -1e12; this.primed = false; }
+  step(t, p, a) {
+    p = Math.max(0, Math.round(p)); a = a ? 1 : 0;
+    if (!this.primed) {               // first line with fields: adopt the firmware's state without inventing events
+      this.primed = true; this.pulses = p; this.alertOn = !!a;
+      if (p) this.lastPulseT = t;
+      if (a) this.alertStartT = t;
+      return;
+    }
+    const prevP = this.pulses, rose = a && !this.alertOn, fell = !a && this.alertOn;
+    let fired = rose;
+    if (p > prevP) {
+      for (let n = prevP + 1; n <= p; n++) this.emit({ type: 'pulse', t, n });
+      this.lastPulseT = t;
+    } else if (p < prevP) {
+      // The count drops both on timeout and when pulse 2 fires the alert. Alert is always 0 at a
+      // timeout (any hold ends before a window opened inside it can expire), so it tells them apart.
+      if (a) { this.emit({ type: 'pulse', t, n: prevP + 1 }); this.lastPulseT = t; fired = true; }
+      else this.emit({ type: 'timeout', t });
+    }
+    if (fired) { this.emit({ type: 'alert', t, retrigger: !rose }); this.alertStartT = t; }
+    if (fell) this.emit({ type: 'alertEnd', t });
+    this.pulses = p; this.alertOn = !!a;
+  }
+}
+
+class Pipeline {
+  constructor() {
+    this.splitter = new LineSplitter(CFG.MAX_LINE);
+    this.raw = new Float32Array(CFG.WINDOW);
+    this.env = new Float32Array(CFG.WINDOW);
+    this.mirror = new MirrorEngine(ev => this._decision('mirror', ev));
+    this.fw = new FieldEngine(ev => this._decision('firmware', ev));
+    this.reset();
+  }
+  reset() {
+    this.splitter.buf = '';
+    this.raw.fill(NaN); this.env.fill(NaN);
+    this.sample = 0;                         // index of the newest sample; its time is sample × 4 ms
+    this.thr = CFG.THRESH;
+    this.dsp = new EnvelopeDSP(); this.envComputed = false;
+    this.mirror.reset(); this.fw.reset();
+    this.src = 'mirror'; this.fieldsSeenS = -1e9;
+    this.stats = { lines: 0, valid: 0, garbled: 0, chars: 0, lastGarbled: '' };
+    this.counts = { mirror: { pulse: 0, alert: 0 }, firmware: { pulse: 0, alert: 0 } };
+    this.marks = []; this.refr = []; this.gait = []; this.alerts = []; this.peaks = [];
+    this.log = []; this.logVersion = 0; this.logId = 0;
+    this.ev = null; this.lastEvent = null;
+    this.prevEnv = 0; this.curRaw = NaN; this.curEnv = NaN; this.pulsedNow = false;
+  }
+  get t() { return this.sample * CFG.SAMPLE_MS; }
+
+  ingestText(text) {
+    this.stats.chars += text.length;
+    this.splitter.push(text, line => this.processLine(line));
+  }
+
+  processLine(line) {
+    const text = line.trim();
+    if (!text) return;
+    this.stats.lines++;
+    const s = ++this.sample, i = s % CFG.WINDOW;   // a garbled line still costs one sample period
+    const p = parseLine(text);
+    if (!p) {
+      this.stats.garbled++; this.stats.lastGarbled = text.slice(0, 48);
+      this.raw[i] = NaN; this.env[i] = NaN;
+      return;
+    }
+    this.stats.valid++;
+    if (p.thr > 0) this.thr = p.thr;
+    const thr = this.thr;
+    let env = p.env;
+    if (Number.isFinite(p.raw)) {
+      const local = this.dsp.step(p.raw);
+      if (!Number.isFinite(env)) env = local;
+    }
+    this.envComputed = !Number.isFinite(p.env);
+    this.raw[i] = p.raw; this.env[i] = env;
+    this.curRaw = p.raw; this.curEnv = env;
+
+    const hasFields = Number.isFinite(p.pulses) && Number.isFinite(p.alert);
+    if (hasFields) this.fieldsSeenS = s;
+    const src = s - this.fieldsSeenS <= CFG.FIELDS_STALE_SAMPLES ? 'firmware' : 'mirror';
+    if (src !== this.src) this._switchSource(src);
+
+    this._eventUpdate(p.raw, env, thr);
+    this.pulsedNow = false;
+    const t = s * CFG.SAMPLE_MS;
+    this.mirror.step(t, env, thr);
+    if (hasFields) this.fw.step(t, p.pulses, p.alert);
+    if (env > thr && this.prevEnv <= thr && !this.pulsedNow) this.marks.push({ s, counted: false });
+    if (this.src === 'mirror' && env === thr && t - this.mirror.lastPulseT > CFG.REFRACTORY_MS) {
+      this.info(`Envelope printed as exactly ${thr.toFixed(1)} — too close to call from a 1-decimal print; the firmware may have counted a pulse here`);
+    }
+    this._eventMaybeClose(thr);
+    this.prevEnv = env;
+    if ((s & 127) === 0) this._prune();
+  }
+
+  decision() {
+    const e = this.src === 'firmware' ? this.fw : this.mirror, t = this.t;
+    return {
+      src: this.src, pulses: e.pulses, alertOn: e.alertOn,
+      alertLeftMs: Math.max(0, e.alertStartT + CFG.ALERT_HOLD_MS - t),
+      windowLeftMs: Math.max(0, e.lastPulseT + CFG.GAIT_WINDOW_MS - t),
+    };
+  }
+
+  info(text) { this._addLog('info', text, false); }
+
+  _switchSource(src) {
+    this._closeOverlays(this.sample, '');
+    this.src = src;
+    if (src === 'firmware') {
+      this.fw.reset();
+      this.counts = { mirror: { pulse: 0, alert: 0 }, firmware: { pulse: 0, alert: 0 } };
+    }
+    this.info(src === 'firmware' ? 'Decision source: firmware Pulses/Alert fields' : 'Decision source: mirrored in browser (no Pulses/Alert fields)');
+  }
+
+  _decision(src, ev) {
+    if (ev.type === 'pulse' || ev.type === 'alert') this.counts[src][ev.type]++;
+    if (src !== this.src) return;
+    const s = this.sample;
+    if (ev.type === 'pulse') {
+      this.pulsedNow = true;
+      this.marks.push({ s, counted: true, n: ev.n });
+      this.refr.push({ s0: s, s1: s + Math.round(CFG.REFRACTORY_MS / CFG.SAMPLE_MS) });
+      if (ev.n === 1) { this._closeGait(s, ''); this.gait.push({ s0: s, s1: null, end: '' }); }
+      this._addLog('pulse', `Pulse counted (${ev.n} of 2)`, true);
+    } else if (ev.type === 'alert') {
+      this._closeGait(s, 'alert');
+      if (!this.alerts.some(a => a.s1 === null)) this.alerts.push({ s0: s, s1: null });
+      this._addLog('alert', ev.retrigger ? 'ALERT — re-triggered, hold restarts' : 'ALERT — elephant gait (2 pulses)', true);
+    } else if (ev.type === 'alertEnd') {
+      for (const a of this.alerts) if (a.s1 === null) a.s1 = s;
+    } else if (ev.type === 'timeout') {
+      this._closeGait(s, 'timeout');
+      this._addLog('timeout', 'Timeout reset — no 2nd pulse within 3 s', false);
+    }
+  }
+
+  _closeGait(s, end) { for (const g of this.gait) if (g.s1 === null) { g.s1 = s; g.end = end; } }
+  _closeOverlays(s, end) { this._closeGait(s, end); for (const a of this.alerts) if (a.s1 === null) a.s1 = s; }
+
+  _addLog(type, text, linkToEvent) {
+    const e = { id: ++this.logId, type, text, t: this.t / 1000, wall: Date.now(), peakEnv: NaN, peakRaw: NaN, thr: this.thr };
+    if (linkToEvent) {
+      if (!this.ev) this._openEvent();
+      this.ev.entries.push(e);
+      e.peakEnv = this.ev.peakEnv; e.peakRaw = this.ev.peakRaw;
+    }
+    this.log.push(e);
+    if (this.log.length > CFG.LOG_MAX) this.log.shift();
+    this.logVersion++;
+    return e;
+  }
+
+  _openEvent() { this.ev = { s0: this.sample, peakEnv: 0, peakEnvS: this.sample, peakRaw: NaN, crossed: false, below: 0, entries: [] }; }
+  _eventUpdate(raw, env, thr) {
+    const floor = Math.min(CFG.EVENT_FLOOR, thr * 0.5);
+    if (!this.ev) { if (env <= floor) return; this._openEvent(); }
+    const e = this.ev;
+    if (env > e.peakEnv) { e.peakEnv = env; e.peakEnvS = this.sample; }
+    if (raw > e.peakRaw || (Number.isFinite(raw) && Number.isNaN(e.peakRaw))) e.peakRaw = raw;
+    if (env > thr) e.crossed = true;
+    e.below = env < floor ? e.below + 1 : 0;
+  }
+  _eventMaybeClose(thr) {
+    const e = this.ev;
+    if (e && (e.below >= CFG.EVENT_END_SAMPLES || this.sample - e.s0 >= CFG.EVENT_MAX_SAMPLES)) this._closeEvent(thr);
+  }
+  _closeEvent(thr) {
+    const e = this.ev;
+    this.ev = null;
+    let kind = 'pulse';
+    if (e.entries.length) {
+      for (const x of e.entries) { x.peakEnv = e.peakEnv; x.peakRaw = e.peakRaw; }
+    } else {
+      kind = e.crossed ? 'ignored' : 'rejected';
+      const x = this._addLog(kind, e.crossed ? 'Ignored — inside 350 ms refractory' : 'Rejected — below threshold', false);
+      x.peakEnv = e.peakEnv; x.peakRaw = e.peakRaw; x.t = e.s0 * CFG.SAMPLE_MS / 1000;
+    }
+    this.lastEvent = { kind, peakEnv: e.peakEnv, peakRaw: e.peakRaw, thr };
+    this.peaks.push({ s: e.peakEnvS, env: e.peakEnv, kind });
+    this.logVersion++;
+  }
+
+  _prune() {
+    const min = this.sample - CFG.WINDOW;
+    this.marks = this.marks.filter(m => m.s >= min);
+    this.peaks = this.peaks.filter(m => m.s >= min);
+    this.refr = this.refr.filter(r => r.s1 >= min);
+    this.gait = this.gait.filter(g => g.s1 === null || g.s1 >= min);
+    this.alerts = this.alerts.filter(a => a.s1 === null || a.s1 >= min);
+  }
+}
+
+// Tap shapes tuned to the bench measurements: light ≈1100 raw / ≈120 envelope, heavy 1790/1460 double peak / ≈370 envelope.
+const TAP_LIGHT = [1100, 480, 60, 0, 40];
+const TAP_HEAVY = [1790, 1100, 300, 0, 700, 1460, 700, 150, 0, 100];
+
+function buildScenario(name, seed = 7) {
+  const rnd = mulberry32(seed), S = ms => Math.round(ms / CFG.SAMPLE_MS);
+  const gauss = () => Math.sqrt(-2 * Math.log(1 - rnd())) * Math.cos(2 * Math.PI * rnd());
+  let durMs = 15000, seedBaseline = 0, taps = [], label;
+  if (name === 'poweron') {
+    durMs = 6000; seedBaseline = 2048;
+    label = 'power-on, dcBaseline starts at 2048 while rest reads 0';
+  } else {
+    taps = [[2000, TAP_LIGHT], [4500, TAP_HEAVY], [9500, TAP_HEAVY], [10300, TAP_HEAVY]];
+    label = 'quiet → light tap → heavy tap → two heavy taps 0.8 s apart' + (name === 'demo-fields' ? ' (with Pulses/Alert fields)' : '');
+  }
+  const total = S(durMs), raw = new Int16Array(total);
+  for (let n = 0; n < total; n++) raw[n] = Math.max(0, Math.round(gauss() * 5));
+  for (const [ms, tpl] of taps) {
+    const g = 0.99 + 0.04 * rnd(), n0 = S(ms);
+    tpl.forEach((v, k) => { if (n0 + k < total) raw[n0 + k] = Math.min(4095, raw[n0 + k] + Math.round(v * g)); });
+  }
+  return { name, label, total, raw, seedBaseline, fields: name === 'demo-fields' };
+}
+// ==== CORE END
+
+// ==== UI
+const $ = id => document.getElementById(id);
+const P = new Pipeline();
+const hasSerial = 'serial' in navigator;
+let port = null, reader = null, keepReading = false, busy = false, connBaud = 0, serialErrors = 0;
+let replay = null, yAuto = true, lastDataWall = 0;
+const rateHist = [];
+
+const fmt = (v, d = 0) => Number.isFinite(v) ? v.toFixed(d) : '—';
+const dbTxt = r => { const db = 20 * Math.log10(r); return (db >= 0 ? '+' : '−') + Math.abs(db).toFixed(1) + ' dB'; };
+const marginTxt = (pk, thr) => pk > 0 ? `${(pk / thr).toFixed(2)}× ${dbTxt(pk / thr)}` : '';
+const clock = ms => new Date(ms).toLocaleTimeString([], { hour12: false });
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const KIND_TEXT = { pulse: 'counted as a pulse', rejected: 'rejected — below threshold', ignored: 'ignored — refractory' };
+
+function banner(text) { $('bannerText').textContent = text; $('banner').hidden = !text; }
+$('bannerClose').onclick = () => banner('');
+
+function clearAll(note) {
+  P.reset();
+  rateHist.length = 0;
+  if (note) P.info(note);
+}
+
+// ---- WebSerial
+async function connect() {
+  if (busy || port) return;
+  busy = true;
+  try {
+    let p;
+    try { p = await navigator.serial.requestPort(); } catch { return; }   // picker cancelled
+    const baud = Number($('baud').value);
+    try {
+      await p.open({ baudRate: baud, bufferSize: 1 << 16 });
+    } catch (e) {
+      banner(`Could not open the port (${e.message}). Close the Arduino Serial Monitor / Plotter — only one app can own the port — then Connect again.`);
+      return;
+    }
+    stopReplay('');
+    port = p; connBaud = baud; serialErrors = 0; keepReading = true;
+    banner('');
+    clearAll(`Connected at ${baud} baud`);
+    lastDataWall = performance.now();
+    readLoop(p);
+  } finally {
+    busy = false;
+    updateControls();
+  }
+}
+
+async function readLoop(p) {
+  const decoder = new TextDecoder();
+  while (keepReading && p.readable) {
+    reader = p.readable.getReader();
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value && value.length) { P.ingestText(decoder.decode(value, { stream: true })); lastDataWall = performance.now(); }
+      }
+    } catch (e) {
+      // Buffer overrun / framing / break errors are recoverable: p.readable is replaced and the loop continues.
+      if (serialErrors++ < 3) P.info(`Serial error: ${e.message}`);
+    } finally {
+      try { reader.releaseLock(); } catch {}
+      reader = null;
+    }
+  }
+  try { await p.close(); } catch {}
+  if (port === p) { port = null; P.info('Disconnected'); updateControls(); }
+}
+
+async function disconnect() {
+  keepReading = false;
+  if (reader) { try { await reader.cancel(); } catch {} }
+}
+
+async function resetBoard() {
+  if (!port) return;
+  try {
+    await port.setSignals({ dataTerminalReady: false, requestToSend: true });    // EN low
+    await new Promise(r => setTimeout(r, 120));
+    await port.setSignals({ dataTerminalReady: false, requestToSend: false });   // EN released, normal boot
+    P.info('Board reset (EN pulsed via RTS) — wait ~2 s for ARMED');
+  } catch (e) {
+    P.info(`Reset not supported by this USB adapter: ${e.message} — press EN on the board`);
+  }
+}
+
+if (hasSerial) {
+  navigator.serial.addEventListener('disconnect', e => {
+    if (port && e.target === port) { P.info('USB cable unplugged'); keepReading = false; }
+  });
+} else {
+  banner('This browser has no WebSerial, so it cannot talk to the ESP32. Open this file in desktop Chrome or Edge. Replay still works here.');
+}
+
+// ---- Replay: a virtual ESP32 (FirmwareSim) prints lines that go through the same parser and logic
+function startReplay() {
+  if (port) return;
+  const sc = buildScenario($('scenario').value);
+  clearAll(`Replay started: ${sc.label} — synthetic data`);
+  replay = { sc, sim: new FirmwareSim({ seedBaseline: sc.seedBaseline }), n: 0, t0: performance.now(), rnd: mulberry32(99) };
+  replay.timer = setInterval(replayTick, 15);
+  updateControls();
+}
+
+function replayTick() {
+  const r = replay;
+  if (!r) return;
+  const due = Math.min(r.sc.total, Math.floor((performance.now() - r.t0) / CFG.SAMPLE_MS));
+  let text = '';
+  for (; r.n < due; r.n++) {
+    const raw = r.sc.raw[r.n];
+    r.sim.step(raw);
+    text += r.sim.line(raw, r.sc.fields) + '\n';
+  }
+  // Odd-sized chunks, like USB packets, so the partial-line path runs too.
+  for (let i = 0; i < text.length;) { const k = 1 + Math.floor(r.rnd() * 96); P.ingestText(text.slice(i, i + k)); i += k; }
+  if (text) lastDataWall = performance.now();
+  if (r.n >= r.sc.total) stopReplay('Replay finished');
+}
+
+function stopReplay(note) {
+  if (!replay) return;
+  clearInterval(replay.timer);
+  replay = null;
+  if (note) P.info(note);
+  updateControls();
+}
+
+// ---- Controls
+function updateControls() {
+  const c = $('btnConnect');
+  c.textContent = port ? 'Disconnect' : 'Connect';
+  c.className = port ? 'danger' : 'primary';
+  c.disabled = !hasSerial || !!replay || busy;
+  $('baud').disabled = !!port;
+  $('btnReset').disabled = !port;
+  $('btnReplay').textContent = replay ? '■ Stop replay' : '▶ Replay demo';
+  $('btnReplay').disabled = !!port;
+  $('scenario').disabled = !!port || !!replay;
+  const pill = $('pill');
+  pill.textContent = port ? `LIVE · ${connBaud} baud` : replay ? 'REPLAY · synthetic data' : 'Not connected';
+  pill.className = 'pill' + (port ? ' live' : replay ? ' replay' : '');
+}
+
+$('btnConnect').onclick = () => (port ? disconnect() : connect());
+$('btnReset').onclick = resetBoard;
+$('btnReplay').onclick = () => (replay ? stopReplay('Replay stopped') : startReplay());
+$('btnClear').onclick = () => clearAll('Cleared');
+$('btnScale').onclick = () => { yAuto = !yAuto; $('btnScale').textContent = yAuto ? 'Y: Auto' : 'Y: Fixed'; };
+
+setInterval(() => {
+  rateHist.push({ now: performance.now(), lines: P.stats.lines, chars: P.stats.chars });
+  if (rateHist.length > 5) rateHist.shift();
+}, 250);
+
+function rates() {
+  if (rateHist.length < 3) return null;
+  const a = rateHist[0], b = rateHist[rateHist.length - 1], dt = (b.now - a.now) / 1000;
+  return { lps: Math.max(0, (b.lines - a.lines) / dt), cps: Math.max(0, (b.chars - a.chars) / dt) };
+}
+
+// ---- Status tile, readouts, log
+let tileClass = '';
+function renderTile() {
+  const d = P.decision(), stale = performance.now() - lastDataWall > 1500;
+  let cls, title, sub, frac = 0;
+  if (P.sample === 0) {
+    cls = 'idle';
+    title = port ? 'WAITING' : 'IDLE';
+    sub = port ? 'Connected, no data yet — check the baud rate, or press EN on the board' : 'Connect the ESP32 or press ▶ Replay demo';
+  } else if (d.alertOn) {
+    cls = 'alert'; title = 'ELEPHANT ALERT';
+    sub = `Hold ${(d.alertLeftMs / 1000).toFixed(1)} s · red LED GPIO23 + buzzer GPIO19` + (d.pulses ? ` · pulse ${d.pulses} of 2 pending` : '');
+    frac = d.alertLeftMs / CFG.ALERT_HOLD_MS;
+  } else if (d.pulses >= 1) {
+    cls = 'pulse'; title = `PULSE ${d.pulses} of 2`;
+    sub = `2nd footfall within ${(d.windowLeftMs / 1000).toFixed(1)} s → alert`;
+    frac = d.windowLeftMs / CFG.GAIT_WINDOW_MS;
+  } else {
+    cls = 'armed'; title = 'ARMED';
+    sub = `Listening · envelope ${fmt(P.curEnv)} / threshold ${fmt(P.thr)}`;
+  }
+  if (port && stale && P.sample > 0) sub = '⚠ No data for over 1.5 s — cable, port or baud?';
+  if (cls !== tileClass) { $('tile').className = 'tile ' + cls; tileClass = cls; }
+  $('tileTitle').textContent = title;
+  $('tileSub').textContent = sub;
+  $('tileBar').style.width = (Math.min(1, frac) * 100).toFixed(1) + '%';
+  $('tileSrc').textContent = P.sample === 0 ? '' : d.src === 'firmware' ? 'FIRMWARE STATE' : 'MIRRORED';
+  $('tileMode').textContent = replay ? 'REPLAY · SYNTHETIC' : '';
+}
+
+function renderReadouts() {
+  const env = P.curEnv, thr = P.thr;
+  $('roEnv').textContent = fmt(env, 1);
+  $('roThr').textContent = fmt(thr, 0);
+  const bar = $('roEnvBar');
+  bar.style.width = (Number.isFinite(env) ? Math.min(100, env / (thr * 2) * 100) : 0) + '%';
+  bar.classList.toggle('over', env > thr);
+
+  const ev = P.ev || P.lastEvent;
+  if (ev && ev.peakEnv > 0) {
+    const r = ev.peakEnv / thr;
+    $('roPeakEnv').textContent = fmt(ev.peakEnv, 1);
+    $('roPeakKind').textContent = P.ev ? 'event in progress…' : KIND_TEXT[ev.kind];
+    $('roPeakRaw').textContent = fmt(ev.peakRaw, 0);
+    $('roMargin').textContent = r.toFixed(2) + '×';
+    $('roMargin').className = 'v ' + (r > 1 ? 'good' : 'warn');
+    $('roMarginDb').textContent = `${dbTxt(r)} ${r > 1 ? 'above' : 'below'} threshold`;
+  } else {
+    $('roPeakEnv').textContent = $('roPeakRaw').textContent = $('roMargin').textContent = '—';
+    $('roMargin').className = 'v';
+    $('roPeakKind').textContent = 'no event yet';
+    $('roMarginDb').textContent = 'peak ÷ threshold';
+  }
+
+  const rt = rates(), running = port || replay;
+  $('roRate').textContent = rt && running ? rt.lps.toFixed(0) : '—';
+  $('roRate').className = 'v' + (rt && running && rt.lps < 225 ? ' warn' : '');
+  if (port && rt) {
+    const load = rt.cps * 10 / connBaud * 100;
+    $('roLink').innerHTML = `${load.toFixed(0)}<small> %</small>`;
+    $('roLink').className = 'v' + (load > 80 ? ' warn' : '');
+    $('roLinkSub').textContent = `of ${connBaud} baud${load > 80 ? ' — near saturation' : ''}`;
+  } else {
+    $('roLink').textContent = '—'; $('roLink').className = 'v';
+    $('roLinkSub').textContent = replay ? 'replay — no serial link' : 'bytes × 10 ÷ baud';
+  }
+  $('roGarbled').textContent = P.stats.garbled;
+  $('roGarbled').className = 'v' + (P.stats.garbled > 20 ? ' warn' : '');
+  $('roGarbledSub').textContent = P.stats.lastGarbled ? `last: “${P.stats.lastGarbled}”` : `of ${P.stats.lines} lines`;
+
+  const d = P.decision(), c = P.counts;
+  $('roSrc').innerHTML = d.src === 'firmware'
+    ? `<b>Firmware state</b> — Pulses/Alert fields in each line. Cross-check with the browser mirror: pulses ${c.firmware.pulse} / ${c.mirror.pulse}, alerts ${c.firmware.alert} / ${c.mirror.alert}.`
+    : `<b>Mirrored in browser</b> — the line has no Pulses/Alert fields, so the firmware rules are re-run here on the envelope (4 ms per sample).`
+      + (P.envComputed ? ' Envelope field missing: computed in the browser from Raw.' : '');
+}
+
+let logShown = -1;
+function renderLog() {
+  if (P.logVersion === logShown) return;
+  logShown = P.logVersion;
+  const rows = P.log.slice(-80).reverse().map(e =>
+    `<tr class="lg-${e.type}"><td>${clock(e.wall)}</td><td>${e.t.toFixed(2)}</td><td class="ev">${esc(e.text)}</td>` +
+    `<td>${e.peakEnv > 0 ? e.peakEnv.toFixed(1) : ''}</td><td>${Number.isFinite(e.peakRaw) ? e.peakRaw.toFixed(0) : ''}</td><td>${marginTxt(e.peakEnv, e.thr)}</td></tr>`);
+  $('logBody').innerHTML = rows.join('') || '<tr><td colspan="6" class="empty">No events yet</td></tr>';
+}
+
+// ---- Strip chart
+const cv = $('chart'), cx = cv.getContext('2d');
+const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+const scale = { raw: 4095, env: 640 };
+
+function niceStep(range, ticks) {
+  const r = range / ticks, mag = 10 ** Math.floor(Math.log10(r)), f = r / mag;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * mag;
+}
+
+function chip(text, x, y, color, align = 'left') {
+  const w = cx.measureText(text).width, h = parseFloat(cx.font.match(/(\d+(?:\.\d+)?)px/)[1]);
+  const x0 = align === 'left' ? x : align === 'right' ? x - w : x - w / 2;
+  cx.fillStyle = 'rgba(5,8,12,.78)';
+  cx.fillRect(x0 - 5, y - h * 0.8, w + 10, h * 1.25);
+  cx.fillStyle = color;
+  cx.textAlign = 'left';
+  cx.fillText(text, x0, y);
+}
+
+function drawChart() {
+  const dpr = window.devicePixelRatio || 1, W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  cx.clearRect(0, 0, W, H);
+
+  const N = CFG.WINDOW, sNow = P.sample, sMin = sNow - N + 1;
+  const fs = Math.round(Math.max(13, Math.min(17, W / 80)));
+  const L = fs * 3.6, R = 12, T = 6, B = fs + 14, GAP = 16;
+  const pw = W - L - R, ph = H - T - B - GAP;
+  const rawH = Math.round(ph * 0.36), envH = ph - rawH;
+  const rawTop = T, envTop = T + rawH + GAP, envBot = envTop + envH;
+  const X = s => L + (s - sMin) * pw / (N - 1);
+
+  let mr = 0, me = 0;
+  for (let k = 0; k < N; k++) { if (P.raw[k] > mr) mr = P.raw[k]; if (P.env[k] > me) me = P.env[k]; }
+  const tRaw = yAuto ? Math.max(400, mr * 1.12) : 4095;
+  const tEnv = yAuto ? Math.max(P.thr * 1.45, me * 1.15) : Math.max(640, P.thr * 2);
+  // Grow at once, shrink gently, so the axis doesn't jump around.
+  scale.raw = !yAuto || tRaw > scale.raw ? tRaw : scale.raw + (tRaw - scale.raw) * 0.05;
+  scale.env = !yAuto || tEnv > scale.env ? tEnv : scale.env + (tEnv - scale.env) * 0.05;
+  const Yr = v => rawTop + rawH - v / scale.raw * rawH;
+  const Ye = v => envTop + envH - v / scale.env * envH;
+
+  cx.fillStyle = '#0a1017';
+  cx.fillRect(L, rawTop, pw, rawH);
+  cx.fillRect(L, envTop, pw, envH);
+
+  // Overlays behind the traces
+  cx.font = `700 ${fs}px ${FONT}`;
+  cx.textBaseline = 'alphabetic';
+  const band = (s0, s1, color) => {
+    const a = Math.max(s0, sMin), b = Math.min(s1, sNow);
+    if (b < a) return null;
+    const x0 = X(a), x1 = Math.max(X(b), x0 + 2);
+    cx.fillStyle = color;
+    cx.fillRect(x0, rawTop, x1 - x0, rawH);
+    cx.fillRect(x0, envTop, x1 - x0, envH);
+    return [x0, x1];
+  };
+  const labels = [];
+  for (const g of P.gait) {
+    const r = band(g.s0, g.s1 ?? sNow, 'rgba(245,158,11,0.17)');
+    if (r) labels.push([r, envTop + fs * 2.9, '#fbbf24', '3 s gait window' + (g.end === 'timeout' ? ' · timed out' : g.end === 'alert' ? ' · 2nd pulse' : '')]);
+  }
+  for (const a of P.alerts) {
+    const r = band(a.s0, a.s1 ?? sNow, 'rgba(239,68,68,0.30)');
+    if (r) labels.push([r, envTop + fs * 4.4, '#ff8f8f', 'ALERT HOLD 3 s']);
+  }
+  for (const f of P.refr) {
+    const r = band(f.s0, f.s1, 'rgba(203,213,225,0.22)');
+    if (r) labels.push([r, envBot - 8, '#d7dee8', '350 ms', true]);
+  }
+
+  // Grid and axes
+  cx.lineWidth = 1;
+  cx.strokeStyle = '#1b2633';
+  cx.font = `600 ${fs - 1}px ${FONT}`;
+  cx.fillStyle = '#8fa1b5';
+  cx.textAlign = 'right';
+  cx.textBaseline = 'middle';
+  const yGrid = (max, Y) => {
+    const st = niceStep(max, 3);
+    for (let v = 0; v <= max + 1e-9; v += st) {
+      const y = Math.round(Y(v)) + 0.5;
+      cx.beginPath(); cx.moveTo(L, y); cx.lineTo(L + pw, y); cx.stroke();
+      cx.fillText(v >= 1000 ? (v / 1000).toFixed(v % 1000 ? 1 : 0) + 'k' : String(v), L - 7, y);
+    }
+  };
+  yGrid(scale.raw, Yr);
+  yGrid(scale.env, Ye);
+  cx.textAlign = 'center';
+  cx.textBaseline = 'top';
+  for (let s = Math.ceil(Math.max(sMin, 0) / 250) * 250; s <= sNow; s += 250) {
+    const x = Math.round(X(s)) + 0.5;
+    cx.beginPath(); cx.moveTo(x, rawTop); cx.lineTo(x, rawTop + rawH); cx.moveTo(x, envTop); cx.lineTo(x, envBot); cx.stroke();
+    cx.fillText(`${s / 250} s`, x, envBot + 6);
+  }
+
+  // Threshold
+  const yt = Ye(P.thr);
+  cx.setLineDash([12, 7]);
+  cx.strokeStyle = '#3ddc5f';
+  cx.lineWidth = 2.5;
+  cx.beginPath(); cx.moveTo(L, yt); cx.lineTo(L + pw, yt); cx.stroke();
+  cx.setLineDash([]);
+
+  // Traces
+  const trace = (arr, Y, top, h, color, w) => {
+    cx.save();
+    cx.beginPath(); cx.rect(L, top, pw, h); cx.clip();
+    cx.beginPath();
+    let pen = false;
+    for (let s = Math.max(sMin, 1); s <= sNow; s++) {
+      const v = arr[s % N];
+      if (!Number.isFinite(v)) { pen = false; continue; }
+      const x = X(s), y = Y(v);
+      if (pen) cx.lineTo(x, y); else cx.moveTo(x, y);
+      pen = true;
+    }
+    cx.strokeStyle = color; cx.lineWidth = w; cx.lineJoin = 'round';
+    cx.stroke();
+    cx.restore();
+  };
+  trace(P.raw, Yr, rawTop, rawH, '#4da3ff', 1.6);
+  trace(P.env, Ye, envTop, envH, '#ff9f1a', 2.8);
+
+  // Threshold-crossing markers: solid = counted pulse, hollow = crossing ignored by the refractory rule
+  cx.textBaseline = 'alphabetic';
+  for (const m of P.marks) {
+    if (m.s < sMin) continue;
+    const x = X(m.s), sz = fs * 0.55;
+    cx.beginPath(); cx.moveTo(x - sz, yt - sz * 1.7); cx.lineTo(x + sz, yt - sz * 1.7); cx.lineTo(x, yt); cx.closePath();
+    cx.lineWidth = 2;
+    if (m.counted) {
+      cx.fillStyle = '#ffffff'; cx.fill(); cx.strokeStyle = '#ff9f1a'; cx.stroke();
+      cx.font = `800 ${fs + 1}px ${FONT}`;
+      chip(`P${m.n}`, x, yt - sz * 1.7 - 6, '#ffffff', 'center');
+    } else {
+      cx.strokeStyle = '#94a3b8'; cx.stroke();
+    }
+  }
+  // Event peak values
+  cx.font = `700 ${fs - 1}px ${FONT}`;
+  for (const k of P.peaks) {
+    if (k.s < sMin) continue;
+    const y = Math.max(envTop + fs * 1.4, Ye(Math.min(k.env, scale.env)) - 8);
+    const txt = k.kind === 'rejected' ? `✗ ${k.env.toFixed(0)} rejected` : k.kind === 'ignored' ? `${k.env.toFixed(0)} refractory` : `peak ${k.env.toFixed(0)}`;
+    chip(txt, X(k.s) + 10, y, k.kind === 'pulse' ? '#ffc46b' : '#b6c2d0');
+  }
+
+  // Band labels, lane titles, threshold label
+  cx.font = `700 ${fs}px ${FONT}`;
+  for (const [[x0, x1], y, color, text, mayOverflow] of labels) {
+    if (mayOverflow ? x1 - x0 > 20 : x1 - x0 > cx.measureText(text).width + 12) chip(text, x0 + 5, y, color);
+  }
+  cx.font = `800 ${fs}px ${FONT}`;
+  chip('RAW ADC · GPIO34', L + 8, rawTop + fs + 4, '#4da3ff');
+  chip('ENVELOPE · |raw − DC| smoothed', L + 8, envTop + fs + 4, '#ff9f1a');
+  chip(`THRESHOLD ${fmt(P.thr)}`, L + 8, yt - 7, '#3ddc5f');
+
+  if (sNow === 0) {
+    cx.font = `600 ${fs + 3}px ${FONT}`;
+    cx.fillStyle = '#8fa1b5';
+    cx.textAlign = 'center';
+    cx.fillText('Waiting for data — Connect the ESP32 or press ▶ Replay demo', L + pw / 2, envTop + envH * 0.68);
+  }
+}
+
+let lastUi = 0;
+function frame(now) {
+  drawChart();
+  if (now - lastUi > 66) { lastUi = now; renderTile(); renderReadouts(); renderLog(); }
+  requestAnimationFrame(frame);
+}
+
+P.info(hasSerial ? 'Ready — WebSerial available' : 'Ready — no WebSerial in this browser (Replay only)');
+updateControls();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
